@@ -77,11 +77,4 @@ The client will encrypt the message, send it to the server, and log the encrypte
 
 Server Logging:
 The server receives the encrypted message, decrypts it, and logs both the encrypted and decrypted messages in real time in a txt file on your pc.
-Application Workflow Diagram:
-+-------------------+         +------------------+
-|      Client       |         |      Server      |
-|-------------------|         |------------------|
-| Generate Sym. Key |         | Receive Sym. Key |
-| Encrypt Message   | ----->  | Decrypt Message  |
-| Log Encrypted Msg |         | Log Encrypted Msg|
-+-------------------+         +------------------+
+
