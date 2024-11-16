@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from cryptography.hazmat.backends import default_backend  # Import default_backend
+from cryptography.hazmat.backends import default_backend
 
 
 class ClientApp:
@@ -29,6 +29,9 @@ class ClientApp:
 
         self.log_area = ScrolledText(root, width=60, height=20)
         self.log_area.pack(pady=5)
+
+        # Open the log file in append mode
+        self.encrypted_log_file = open("client_encrypted_messages.txt", "a")
 
     def log(self, message):
         self.log_area.insert(tk.END, f"{message}\n")
@@ -75,6 +78,10 @@ class ClientApp:
             )
         )
 
+        # Log encrypted message
+        self.encrypted_log_file.write(f"Encrypted Message Sent: {payload.hex()}\n")
+        self.encrypted_log_file.flush()
+
         self.client_socket.sendall(len(encrypted_key).to_bytes(4, 'big'))
         self.client_socket.sendall(encrypted_key)
         self.client_socket.sendall(payload)
@@ -91,6 +98,11 @@ class ClientApp:
     def encrypt_message_chacha20(message, key, nonce):
         chacha = ChaCha20Poly1305(key)
         return chacha.encrypt(nonce, message, None)
+
+    def __del__(self):
+        # Ensure the log file is closed when the program exits
+        if self.encrypted_log_file:
+            self.encrypted_log_file.close()
 
 
 if __name__ == "__main__":
