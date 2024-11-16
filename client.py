@@ -1,99 +1,99 @@
+import tkinter as tk
+from tkinter.scrolledtext import ScrolledText
 import socket
 import os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.backends import default_backend  # Import default_backend
 
-# Helper function to generate a key for AES encryption
-def generate_aes_key(password, salt):
-    kdf = Scrypt(salt=salt, length=32, n=2**14, r=8, p=1, backend=default_backend())
-    return kdf.derive(password)
 
-# Helper function to encrypt a message with AES
-def encrypt_message_aes(message, key, iv):
-    cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    return encryptor.update(message) + encryptor.finalize()
+class ClientApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Encryption Client")
+        self.client_socket = None
 
-# Helper function to encrypt a message with ChaCha20-Poly1305
-def encrypt_message_chacha20(message, key, nonce):
-    chacha = ChaCha20Poly1305(key)
-    ciphertext = chacha.encrypt(nonce, message, None)
-    return ciphertext
+        # GUI Elements
+        self.encryption_choice = tk.StringVar(value="AES")
+        self.method_dropdown = tk.OptionMenu(root, self.encryption_choice, "AES", "ChaCha20")
+        self.method_dropdown.pack(pady=5)
 
-# Client code to send encrypted message to server
-def client_program():
-    host = '127.0.0.1'
-    port = 65432
+        self.message_entry = tk.Entry(root, width=50)
+        self.message_entry.pack(pady=5)
 
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((host, port))
-    
-    # Load server's public key to encrypt AES/ChaCha20 key
-    with open("server_public_key.pem", "rb") as key_file:
-        public_key = load_pem_public_key(key_file.read(), backend=default_backend())
+        self.send_button = tk.Button(root, text="Send Message", command=self.send_message)
+        self.send_button.pack(pady=5)
 
-    # Ask user to choose encryption method
-    encryption_choice = input("Choose encryption method (AES or ChaCha20): ").strip().lower()
+        self.log_area = ScrolledText(root, width=60, height=20)
+        self.log_area.pack(pady=5)
 
-    if encryption_choice not in ['aes', 'chacha20']:
-        print("Invalid choice! Defaulting to AES.")
-        encryption_choice = 'aes'
+    def log(self, message):
+        self.log_area.insert(tk.END, f"{message}\n")
+        self.log_area.see(tk.END)
 
-    # Generate symmetric key based on user's choice
-    if encryption_choice == 'aes':
-        password = b'my_secure_password'
-        salt = os.urandom(16)
-        symmetric_key = generate_aes_key(password, salt)
-    elif encryption_choice == 'chacha20':
-        symmetric_key = os.urandom(32)  # ChaCha20 uses a 256-bit key
+    def connect_to_server(self):
+        host = '127.0.0.1'
+        port = 65432
+        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client_socket.connect((host, port))
+        self.log("Connected to server.")
 
-    while True:
-        # Get user input to send
-        message = input("Enter a message to send (or 'exit' to quit): ")
-        if message.lower() == 'exit':
-            print("Exiting the program.")
-            break
+    def send_message(self):
+        if not self.client_socket:
+            self.connect_to_server()
 
-        # Convert the message to bytes
-        message = message.encode()
+        message = self.message_entry.get()
+        if not message:
+            self.log("Message cannot be empty!")
+            return
 
-        # Encrypt the message using the chosen encryption method
-        if encryption_choice == 'aes':
+        self.message_entry.delete(0, tk.END)
+
+        encryption_choice = self.encryption_choice.get().lower()
+        if encryption_choice == "aes":
+            key = os.urandom(32)
             iv = os.urandom(16)
-            ciphertext = encrypt_message_aes(message, symmetric_key, iv)
-        elif encryption_choice == 'chacha20':
-            nonce = os.urandom(12)  # ChaCha20 uses a 12-byte nonce
-            ciphertext = encrypt_message_chacha20(message, symmetric_key, nonce)
+            ciphertext = self.encrypt_message_aes(message.encode(), key, iv)
+            payload = iv + ciphertext
+        else:
+            key = os.urandom(32)
+            nonce = os.urandom(12)
+            ciphertext = self.encrypt_message_chacha20(message.encode(), key, nonce)
+            payload = nonce + ciphertext
 
-        # Encrypt symmetric key with server's public key
-        try:
-            encrypted_symmetric_key = public_key.encrypt(
-                symmetric_key,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
-                )
+        with open("server_public_key.pem", "rb") as key_file:
+            public_key = load_pem_public_key(key_file.read(), backend=default_backend())
+        encrypted_key = public_key.encrypt(
+            key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
             )
-        except Exception as e:
-            print(f"Encryption error: {e}")
-            continue
+        )
 
-        # Send the encrypted symmetric key, and message (with IV/nonce if necessary)
-        client_socket.sendall(len(encrypted_symmetric_key).to_bytes(4, 'big'))  # Send key size
-        client_socket.sendall(encrypted_symmetric_key)  # Send encrypted key
-        
-        if encryption_choice == 'aes':
-            client_socket.sendall(iv + ciphertext)  # Send IV and ciphertext for AES
-        elif encryption_choice == 'chacha20':
-            client_socket.sendall(nonce + ciphertext)  # Send nonce and ciphertext for ChaCha20
+        self.client_socket.sendall(len(encrypted_key).to_bytes(4, 'big'))
+        self.client_socket.sendall(encrypted_key)
+        self.client_socket.sendall(payload)
 
-    client_socket.close()
+        self.log(f"Sent ({encryption_choice.upper()}): {message}")
 
-if __name__ == '__main__':
-    client_program()
+    @staticmethod
+    def encrypt_message_aes(message, key, iv):
+        cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
+        encryptor = cipher.encryptor()
+        return encryptor.update(message) + encryptor.finalize()
+
+    @staticmethod
+    def encrypt_message_chacha20(message, key, nonce):
+        chacha = ChaCha20Poly1305(key)
+        return chacha.encrypt(nonce, message, None)
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ClientApp(root)
+    root.mainloop()
