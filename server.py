@@ -28,6 +28,9 @@ class ServerApp:
         self.log_area = ScrolledText(root, width=60, height=20)
         self.log_area.pack(pady=5)
 
+        # Open the log file in append mode
+        self.encrypted_log_file = open("server_encrypted_messages.txt", "a")
+
     def log(self, message):
         self.log_area.insert(tk.END, f"{message}\n")
         self.log_area.see(tk.END)
@@ -78,6 +81,11 @@ class ServerApp:
                     )
 
                     encrypted_message = self.conn.recv(1024)
+                    
+                    # Log encrypted message
+                    self.encrypted_log_file.write(f"Encrypted Message Received: {encrypted_message.hex()}\n")
+                    self.encrypted_log_file.flush()
+
                     iv_or_nonce = encrypted_message[:16]
                     ciphertext = encrypted_message[16:]
 
@@ -107,8 +115,14 @@ class ServerApp:
         chacha = ChaCha20Poly1305(key)
         return chacha.decrypt(nonce, ciphertext, None)
 
+    def __del__(self):
+        # Ensure the log file is closed when the program exits
+        if self.encrypted_log_file:
+            self.encrypted_log_file.close()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = ServerApp(root)
     root.mainloop()
+
